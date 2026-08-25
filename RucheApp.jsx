@@ -114,6 +114,18 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+/* Trie des dossiers par numéro (301, 302, 303…) plutôt que par ordre de création.
+   La partie chiffrée est comparée numériquement pour que 303 ne se retrouve pas après 324. */
+function trierParNumero(liste) {
+  return liste.slice().sort((a, b) => {
+    const na = parseInt(String(a.numero).replace(/\D/g, ""), 10);
+    const nb = parseInt(String(b.numero).replace(/\D/g, ""), 10);
+    if (isNaN(na) || isNaN(nb)) return String(a.numero).localeCompare(String(b.numero));
+    if (na !== nb) return na - nb;
+    return String(a.numero).localeCompare(String(b.numero));
+  });
+}
+
 /* un événement daté d'hier ou avant appartient au passé ; sans date, il reste au plan de match */
 function estPasse(ev) {
   if (!ev.date) return false;
@@ -1068,14 +1080,14 @@ function GroupeEleves({ ctx, niveauId, groupeId }) {
   let titre, sousTitre, listeEleves, onAdd, isGroupe = false, groupe = null;  if (niveauId) {
     const niveau = NIVEAUX.find((n) => n.id === niveauId);
     titre = niveau.label;
-    listeEleves = ctx.eleves.filter((e) => e.niveauId === niveauId);
+    listeEleves = trierParNumero(ctx.eleves.filter((e) => e.niveauId === niveauId));
     sousTitre = listeEleves.length + " élève(s)";
     onAdd = () => ctx.addEleve(niveauId);
   } else {
     isGroupe = true;
     groupe = ctx.groupes.find((g) => g.id === groupeId);
     titre = groupe ? groupe.nom : "Groupe";
-    listeEleves = ctx.eleves.filter((e) => groupe && groupe.membres.includes(e.id));
+    listeEleves = trierParNumero(ctx.eleves.filter((e) => groupe && groupe.membres.includes(e.id)));
     sousTitre = listeEleves.length + " membre(s)";
   }
   const couleurBase = niveauId ? ctx.config.couleurs[niveauId] : ctx.config.couleurs.suite;
@@ -1128,7 +1140,7 @@ function GroupMembersModal({ ctx, groupe, onClose }) {
       <div className="pick-list">
         {ctx.eleves.length === 0 && <EmptyState text="Aucun élève n'a encore été créé." />}
         {NIVEAUX.map((niv) => {
-          const list = ctx.eleves.filter((e) => e.niveauId === niv.id);
+          const list = trierParNumero(ctx.eleves.filter((e) => e.niveauId === niv.id));
           if (!list.length) return null;
           return (
             <div key={niv.id} className="pick-group">
@@ -1374,7 +1386,7 @@ function PersonnelGrid({ ctx }) {
         </label>
       </div>
       <HiveGrid
-        items={ctx.personnel}
+        items={trierParNumero(ctx.personnel)}
         renderItem={(p) => (
           <HexCell key={p.id} size="mini" couleur={ctx.config.couleurs.personnel} couleurTexte={p.couleurTexte || couleurTexteSection} imageFichier={p.imageFichier}
             label={afficherNumeros ? p.numero : ""} onClick={() => ctx.goTo({ name: "personnel", personnelId: p.id })} />
@@ -2386,7 +2398,7 @@ function ImportExportPanel({ ctx }) {
   function exportMd() {
     let md = "# Export de la ruche\n\n";
     NIVEAUX.forEach((niv) => {
-      const list = ctx.eleves.filter((e) => e.niveauId === niv.id);
+      const list = trierParNumero(ctx.eleves.filter((e) => e.niveauId === niv.id));
       if (!list.length) return;
       md += "## " + niv.label + "\n\n";
       list.forEach((e) => {
@@ -2523,7 +2535,7 @@ function ArchiveViewer({ archiveId, onClose }) {
     <Modal title={"Archive — " + data.label} onClose={onClose} wide>
       <p className="modal-hint">Lecture seule.</p>
       {NIVEAUX.map((niv) => {
-        const list = data.eleves.filter((e) => e.niveauId === niv.id);
+        const list = trierParNumero(data.eleves.filter((e) => e.niveauId === niv.id));
         if (!list.length) return null;
         return (
           <div key={niv.id} className="config-block">
