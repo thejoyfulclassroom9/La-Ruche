@@ -499,6 +499,26 @@ export default function RucheApp() {
   function updateEleve(id, patch) {
     persist((d) => ({ ...d, eleves: d.eleves.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
   }
+
+  /* Crée un élève en choisissant son numéro à la main (élève qui arrive en cours d'année,
+     numéro laissé libre par un départ, etc.). Retourne null si créé, sinon un message. */
+  function addEleveAvecNumero(niveauId, numeroBrut) {
+    const niveau = NIVEAUX.find((n) => n.id === niveauId);
+    const numero = String(numeroBrut || "").trim();
+    if (!numero) return "Entre un numéro.";
+    if (!new RegExp("^" + niveau.prefix + "\\d{2,}$").test(numero)) {
+      return "Un numéro de " + niveau.label + " commence par " + niveau.prefix + " et compte au moins trois chiffres (ex. " + niveau.prefix + "03).";
+    }
+    if (data.eleves.some((e) => e.numero === numero)) return "Le numéro " + numero + " est déjà porté par un élève actif.";
+    const enCorbeille = data.corbeille.find((c) => c.type === "eleve" && c.entity.numero === numero);
+    if (enCorbeille) return "Le numéro " + numero + " appartient à un dossier en corbeille. Restaure-le, ou utilise « Réutiliser le numéro » dans Paramètres › Corbeille.";
+
+    persist((d) => ({
+      ...d,
+      eleves: [...d.eleves, { id: uid(), numero, niveauId, groupes: [], champs: {}, champsLocaux: [], imageFichier: null, couleurTexte: null, creeLe: new Date().toISOString() }],
+    }));
+    return null;
+  }
   function deleteEleve(id) {
     persist((d) => {
       const eleve = d.eleves.find((e) => e.id === id);
@@ -532,6 +552,22 @@ export default function RucheApp() {
   }
   function updatePersonnel(id, patch) {
     persist((d) => ({ ...d, personnel: d.personnel.map((p) => (p.id === id ? { ...p, ...patch } : p)) }));
+  }
+
+  /* Même chose pour le personnel : numéro choisi à la main. */
+  function addPersonnelAvecNumero(numeroBrut) {
+    const numero = String(numeroBrut || "").trim().toUpperCase();
+    if (!numero) return "Entre un numéro.";
+    if (!/^P\d{3,}$/.test(numero)) return "Un numéro de personnel s'écrit P suivi d'au moins trois chiffres (ex. P003).";
+    if (data.personnel.some((p) => p.numero === numero)) return "Le numéro " + numero + " est déjà porté par un membre actif.";
+    const enCorbeille = data.corbeille.find((c) => c.type === "personnel" && c.entity.numero === numero);
+    if (enCorbeille) return "Le numéro " + numero + " appartient à un dossier en corbeille. Restaure-le, ou utilise « Réutiliser le numéro » dans Paramètres › Corbeille.";
+
+    persist((d) => ({
+      ...d,
+      personnel: [...d.personnel, { id: uid(), numero, gouts: "", matieres: "", champs: {}, champsLocaux: [], imageFichier: null, couleurTexte: null, creeLe: new Date().toISOString() }],
+    }));
+    return null;
   }
   function deletePersonnel(id) {
     persist((d) => {
@@ -851,8 +887,8 @@ export default function RucheApp() {
     evaluations: data.evaluations, pi: data.pi, taches: data.taches, evenements: data.evenements, photos: data.photos, archives: data.archives,
     corbeille: data.corbeille,
     goTo, goHome, screen,
-    addEleve, updateEleve, deleteEleve,
-    addPersonnel, updatePersonnel, deletePersonnel,
+    addEleve, addEleveAvecNumero, updateEleve, deleteEleve,
+    addPersonnel, addPersonnelAvecNumero, updatePersonnel, deletePersonnel,
     restaurerCorbeille, reutiliserNumero, supprimerDefinitivement, viderCorbeille,
     addGroupe, updateGroupe, deleteGroupe, toggleMembreGroupe,
     addNote, updateNote, deleteNote,
@@ -1027,9 +1063,9 @@ function GroupeEleves({ ctx, niveauId, groupeId }) {
   const [showBatch, setShowBatch] = useState(false);
   const [showGroupPick, setShowGroupPick] = useState(false);
   const [showColorBulk, setShowColorBulk] = useState(false);
+  const [showNumeroManuel, setShowNumeroManuel] = useState(false);
 
-  let titre, sousTitre, listeEleves, onAdd, isGroupe = false, groupe = null;
-  if (niveauId) {
+  let titre, sousTitre, listeEleves, onAdd, isGroupe = false, groupe = null;  if (niveauId) {
     const niveau = NIVEAUX.find((n) => n.id === niveauId);
     titre = niveau.label;
     listeEleves = ctx.eleves.filter((e) => e.niveauId === niveauId);
@@ -1050,6 +1086,7 @@ function GroupeEleves({ ctx, niveauId, groupeId }) {
       <BackBar titre={titre} sousTitre={sousTitre} onBack={() => ctx.goTo(isGroupe ? { name: "suite" } : { name: "home" })} />
       <div className="toolbar">
         {!isGroupe && <button className="btn btn-primary" onClick={onAdd}><UserPlus size={16} /> Créer un élève</button>}
+        {!isGroupe && <button className="btn" onClick={() => setShowNumeroManuel(true)} title="Choisir le numéro à la main"><Edit3 size={16} /> Numéro précis</button>}
         {isGroupe && <button className="btn btn-primary" onClick={() => setShowGroupPick(true)}><UserPlus size={16} /> Gérer les membres</button>}
         {listeEleves.length > 0 && <button className="btn" onClick={() => setShowBatch(true)}><ClipboardList size={16} /> Saisie en lot</button>}
         {listeEleves.length > 0 && <button className="btn" onClick={() => setShowColorBulk(true)}><Palette size={16} /> Couleur du texte (tous)</button>}
@@ -1063,6 +1100,14 @@ function GroupeEleves({ ctx, niveauId, groupeId }) {
       />
       {!listeEleves.length && <EmptyState text={isGroupe ? "Ce groupe n'a pas encore de membres. Clique sur « Gérer les membres »." : "Aucun élève pour l'instant. Clique sur « Créer un élève »."} />}
       {showBatch && <BatchEvalModal ctx={ctx} eleves={listeEleves} onClose={() => setShowBatch(false)} />}
+      {showNumeroManuel && niveauId && (
+        <NumeroManuelModal
+          titre="Créer un élève avec un numéro précis"
+          exemple={(NIVEAUX.find((n) => n.id === niveauId) || {}).prefix + "03"}
+          onValider={(num) => ctx.addEleveAvecNumero(niveauId, num)}
+          onClose={() => setShowNumeroManuel(false)}
+        />
+      )}
       {showGroupPick && groupe && <GroupMembersModal ctx={ctx} groupe={groupe} onClose={() => setShowGroupPick(false)} />}
       {showColorBulk && (
         <TextColorModal
@@ -1313,6 +1358,7 @@ function ChampInput({ type, options, value, onChange }) {
 
 function PersonnelGrid({ ctx }) {
   const [showColorBulk, setShowColorBulk] = useState(false);
+  const [showNumeroManuel, setShowNumeroManuel] = useState(false);
   const afficherNumeros = !ctx.config.masquerNumerosPersonnel;
   const couleurTexteSection = (ctx.config.couleursTexte || {}).personnel;
   return (
@@ -1320,6 +1366,7 @@ function PersonnelGrid({ ctx }) {
       <BackBar titre="Personnel" sousTitre={ctx.personnel.length + " membre(s)"} onBack={ctx.goHome} />
       <div className="toolbar">
         <button className="btn btn-primary" onClick={() => ctx.addPersonnel()}><UserPlus size={16} /> Ajouter un membre</button>
+        <button className="btn" onClick={() => setShowNumeroManuel(true)} title="Choisir le numéro à la main"><Edit3 size={16} /> Numéro précis</button>
         {ctx.personnel.length > 0 && <button className="btn" onClick={() => setShowColorBulk(true)}><Palette size={16} /> Couleur du texte (tous)</button>}
         <label className="pick-row inline">
           <input type="checkbox" checked={afficherNumeros} onChange={() => ctx.saveConfig({ ...ctx.config, masquerNumerosPersonnel: afficherNumeros })} />
@@ -1334,6 +1381,14 @@ function PersonnelGrid({ ctx }) {
         )}
       />
       {!ctx.personnel.length && <EmptyState text="Aucun membre du personnel pour l'instant." />}
+      {showNumeroManuel && (
+        <NumeroManuelModal
+          titre="Ajouter un membre avec un numéro précis"
+          exemple="P003"
+          onValider={(num) => ctx.addPersonnelAvecNumero(num)}
+          onClose={() => setShowNumeroManuel(false)}
+        />
+      )}
       {showColorBulk && (
         <TextColorModal
           title="Couleur du texte — Personnel"
@@ -1634,6 +1689,43 @@ function Historique({ ctx }) {
 /* ============================================================
    FORMULAIRES / MODALES
    ============================================================ */
+
+/* ---------- création avec un numéro choisi à la main ---------- */
+
+function NumeroManuelModal({ titre, exemple, onValider, onClose }) {
+  const [numero, setNumero] = useState("");
+  const [erreur, setErreur] = useState("");
+
+  function valider() {
+    const msg = onValider(numero);
+    if (msg) { setErreur(msg); return; }
+    onClose();
+  }
+
+  return (
+    <Modal title={titre} onClose={onClose}>
+      <p className="modal-hint">
+        Utile pour un élève qui arrive en cours d'année, ou pour combler un numéro laissé libre.
+        La création normale attribue toujours le numéro suivant le plus élevé et ne redescend jamais.
+      </p>
+      <label className="field">
+        <span>Numéro</span>
+        <input
+          autoFocus
+          value={numero}
+          placeholder={exemple}
+          onChange={(e) => { setNumero(e.target.value); setErreur(""); }}
+          onKeyDown={(e) => { if (e.key === "Enter") valider(); }}
+        />
+      </label>
+      {erreur && <p className="error-text">{erreur}</p>}
+      <div className="modal-actions">
+        <button className="btn" onClick={onClose}>Annuler</button>
+        <button className="btn btn-primary" disabled={!numero.trim()} onClick={valider}>Créer</button>
+      </div>
+    </Modal>
+  );
+}
 
 function NoteFormModal({ ctx, entityIds, onClose }) {
   const [titre, setTitre] = useState("");
